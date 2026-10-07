@@ -282,6 +282,7 @@ public class MainActivity extends Activity {
         final OutputStream out;
         final SecureRandom rnd = new SecureRandom();
 
+        @SuppressWarnings("resource")
         Ws(String host, int port, boolean tls, String path) throws IOException {
             Socket raw = new Socket();
             raw.connect(new InetSocketAddress(host, port), 3000);

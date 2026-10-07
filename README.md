@@ -18,4 +18,15 @@ No Gradle. Needs JDK 17 and the Android SDK (build-tools 34, platform 34):
 ANDROID_HOME=~/android-sdk ./build.sh   # -> lg-remote.apk
 ```
 
+### VS Code
+
+Without Gradle the Java extension can't see `android.jar`, so every `android.*` import shows as an error. Create `.vscode/settings.json` (gitignored) pointing at your SDK:
+
+```json
+{
+  "java.project.sourcePaths": ["src"],
+  "java.project.referencedLibraries": ["/path/to/Android/Sdk/platforms/android-34/android.jar"]
+}
+```
+
 Talks to the TV's SSAP WebSocket API (port 3001 TLS, falling back to 3000), with a ~100-line WebSocket client in `MainActivity.java`.
