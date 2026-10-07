@@ -235,9 +235,9 @@ public class MainActivity extends Activity {
      */
     void wake() throws Exception {
         String macs = prefs.getString("mac:" + ip, "");
+        List<InetAddress> targets = new ArrayList<>();
         if (!macs.isEmpty()) {
             // Many Android Wi-Fi stacks drop 255.255.255.255, so also hit each subnet broadcast and the TV directly.
-            List<InetAddress> targets = new ArrayList<>();
             targets.add(InetAddress.getByName("255.255.255.255"));
             for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces()))
                 if (ni.isUp() && !ni.isLoopback())
@@ -262,7 +262,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             drop();
             if (macs.isEmpty()) throw new IOException("connect once while the TV is on so I can learn its MAC");
-            say("Power-on sent. Not on? Enable \"Turn on via Wi-Fi\" on the TV.");
+            say("Wake sent to " + macs + " via " + targets + ". Not on? Enable \"Turn on via Wi-Fi\" on the TV.");
         }
     }
 
