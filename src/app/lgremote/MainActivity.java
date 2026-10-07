@@ -21,10 +21,15 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.URI;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.net.ssl.SSLContext;
@@ -182,6 +187,7 @@ public class MainActivity extends Activity {
             }
             prefs.edit().putString("mac:" + ip, macs.toString().trim()).apply();
         } catch (Exception ignored) {}
+        if (prefs.getString("mac:" + ip, "").isEmpty()) say("Connected to " + ip + " (couldn't read its MAC, so Power on may not work)");
     }
 
     JSONObject request(String uri, JSONObject payload) throws Exception {
@@ -223,21 +229,49 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Wake-on-LAN. Needs TV setting "Turn on via Wi-Fi" (General > Devices > Mobile/External). */
+    /**
+     * Power on two ways: Wake-on-LAN (needs TV setting "Turn on via Wi-Fi", General > Devices),
+     * then ssap turnOn, which works while the TV is in quick-start standby with its network up.
+     */
     void wake() throws Exception {
         String macs = prefs.getString("mac:" + ip, "");
-        if (macs.isEmpty()) throw new IOException("connect once while the TV is on so I can learn its MAC");
-        try (DatagramSocket ds = new DatagramSocket()) {
-            ds.setBroadcast(true);
-            for (String mac : macs.split(" ")) {
-                byte[] p = new byte[102];
-                for (int i = 0; i < 6; i++) p[i] = (byte) 0xff;
-                String[] hex = mac.split("[:-]");
-                for (int i = 6; i < 102; i++) p[i] = (byte) Integer.parseInt(hex[(i - 6) % 6], 16);
-                ds.send(new DatagramPacket(p, p.length, InetAddress.getByName("255.255.255.255"), 9));
+        if (!macs.isEmpty()) {
+            // Many Android Wi-Fi stacks drop 255.255.255.255, so also hit each subnet broadcast and the TV directly.
+            List<InetAddress> targets = new ArrayList<>();
+            targets.add(InetAddress.getByName("255.255.255.255"));
+            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces()))
+                if (ni.isUp() && !ni.isLoopback())
+                    for (InterfaceAddress a : ni.getInterfaceAddresses())
+                        if (a.getBroadcast() != null) targets.add(a.getBroadcast());
+            if (!ip.isEmpty()) targets.add(InetAddress.getByName(ip));
+            try (DatagramSocket ds = new DatagramSocket()) {
+                ds.setBroadcast(true);
+                for (int round = 0; round < 3; round++)
+                    for (String mac : macs.split(" ")) {
+                        byte[] p = magicPacket(mac);
+                        for (InetAddress t : targets)
+                            for (int port : new int[]{9, 7})
+                                try { ds.send(new DatagramPacket(p, p.length, t, port)); } catch (IOException ignored) {}
+                    }
             }
         }
-        say("Power-on sent");
+        say("Power-on sent…");
+        try {
+            request("ssap://system/turnOn", null);
+            say("TV on");
+        } catch (Exception e) {
+            drop();
+            if (macs.isEmpty()) throw new IOException("connect once while the TV is on so I can learn its MAC");
+            say("Power-on sent. Not on? Enable \"Turn on via Wi-Fi\" on the TV.");
+        }
+    }
+
+    static byte[] magicPacket(String mac) {
+        byte[] p = new byte[102];
+        String[] hex = mac.split("[:-]");
+        for (int i = 0; i < 6; i++) p[i] = (byte) 0xff;
+        for (int i = 6; i < 102; i++) p[i] = (byte) Integer.parseInt(hex[(i - 6) % 6], 16);
+        return p;
     }
 
     /** Minimal client-side WebSocket (text frames). LG TVs use self-signed certs, so TLS trusts all. */
