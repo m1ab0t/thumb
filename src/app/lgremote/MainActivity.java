@@ -2,11 +2,16 @@ package app.lgremote;
 
 import android.app.Activity;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.os.Bundle;
 import android.util.Base64;
+import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.View;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -62,41 +67,88 @@ public class MainActivity extends Activity {
     Ws main, pointer;
     int nextId = 1;
 
+    static final int BG = 0xFF0E1013, SURFACE = 0xFF1B1E24, RAISED = 0xFF2A2E37, TEXT = 0xFFECEEF2, MUTED = 0xFF8B919C,
+        ACCENT = 0xFFD6004B, RED = 0xFFE5484D, GREEN = 0xFF2FA36B;
+
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences("tv", MODE_PRIVATE);
         ip = prefs.getString("ip", "");
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(24, 24, 24, 24);
+        col.setPadding(dp(16), dp(8), dp(16), dp(24));
+
+        String ver = "";
+        try { ver = "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) {}
+        TextView title = text("LG Remote", 22, TEXT), version = text(ver, 13, MUTED);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        version.setPadding(dp(8), 0, 0, dp(3));
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.BOTTOM);
+        header.addView(title);
+        header.addView(version);
+        add(col, header, 48);
 
         ipField = new EditText(this);
         ipField.setHint("TV IP address");
-        try { setTitle("LG Remote v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName); } catch (Exception ignored) {}
         ipField.setText(ip);
         ipField.setSingleLine();
-        status = new TextView(this);
-        status.setPadding(8, 8, 8, 24);
-        status.setText(prefs.contains("key") ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.");
-
-        col.addView(row(ipField, btn("Find", this::find), btn("Connect", () -> { request("ssap://system.notifications/createToast", new JSONObject().put("message", "Remote connected")); say("Connected"); })));
+        ipField.setTextColor(TEXT);
+        ipField.setHintTextColor(MUTED);
+        ipField.setBackground(fill(SURFACE, dp(14)));
+        ipField.setPadding(dp(14), 0, dp(14), 0);
+        add(col, line(false, ipField, btn("Find", this::find),
+            paint(btn("Connect", () -> { request("ssap://system.notifications/createToast", new JSONObject().put("message", "Remote connected")); say("Connected"); }), ACCENT, 14)), 48);
+        status = text(prefs.contains("key") ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
+        status.setPadding(dp(6), 0, dp(6), 0);
         col.addView(status);
-        col.addView(row(btn("Power off", () -> request("ssap://system/turnOff", null)), btn("Power on", this::wake), key("Mute", "MUTE")));
-        col.addView(row(btn("Vol −", () -> request("ssap://audio/volumeDown", null)), btn("Vol +", () -> request("ssap://audio/volumeUp", null)),
-                        key("Ch −", "CHANNELDOWN"), key("Ch +", "CHANNELUP")));
-        col.addView(row(space(), key("▲", "UP"), space()));
-        col.addView(row(key("◀", "LEFT"), key("OK", "ENTER"), key("▶", "RIGHT")));
-        col.addView(row(space(), key("▼", "DOWN"), space()));
-        col.addView(row(key("Back", "BACK"), key("Home", "HOME"), key("Settings", "MENU"), key("Exit", "EXIT")));
-        col.addView(row(key("⏪", "REWIND"), key("Play", "PLAY"), key("Pause", "PAUSE"), key("⏩", "FASTFORWARD")));
-        col.addView(row(app("Netflix", "netflix"), app("YouTube", "youtube.leanback.v4"), app("Prime", "amazon")));
-        col.addView(row(key("1", "1"), key("2", "2"), key("3", "3")));
-        col.addView(row(key("4", "4"), key("5", "5"), key("6", "6")));
-        col.addView(row(key("7", "7"), key("8", "8"), key("9", "9")));
-        col.addView(row(key("Info", "INFO"), key("0", "0"), key("Guide", "GUIDE")));
+
+        add(col, line(false, paint(btn("Power off", () -> request("ssap://system/turnOff", null)), RED, 999),
+            paint(btn("Power on", this::wake), GREEN, 999), paint(key("Mute", "MUTE"), SURFACE, 999)), 48);
+
+        LinearLayout pad = line(true,
+            line(false, space(), arrow("▲", "UP"), space()),
+            line(false, arrow("◀", "LEFT"), paint(key("OK", "ENTER"), ACCENT, 999), arrow("▶", "RIGHT")),
+            line(false, space(), arrow("▼", "DOWN"), space()));
+        pad.setBackground(fill(SURFACE, dp(999)));
+        pad.setPadding(dp(8), dp(8), dp(8), dp(8));
+        LinearLayout.LayoutParams padLp = new LinearLayout.LayoutParams(dp(248), dp(248));
+        padLp.gravity = Gravity.CENTER_HORIZONTAL;
+        padLp.topMargin = dp(20);
+        col.addView(pad, padLp);
+
+        LinearLayout nav = line(true, line(false, key("Back", "BACK"), key("Home", "HOME")),
+                                      line(false, key("Menu", "MENU"), key("Exit", "EXIT")));
+        nav.setTag("wide");
+        add(col, line(false,
+            rocker("VOL", () -> request("ssap://audio/volumeUp", null), () -> request("ssap://audio/volumeDown", null)),
+            nav,
+            rocker("CH", () -> button("CHANNELUP"), () -> button("CHANNELDOWN"))), 150);
+
+        add(col, line(false, key("◀◀", "REWIND"), key("▶", "PLAY"), key("▮▮", "PAUSE"), key("▶▶", "FASTFORWARD")), 52);
+        add(col, line(false, app("Netflix", "netflix", 0xFFE50914), app("YouTube", "youtube.leanback.v4", 0xFFFF4E45),
+            app("Prime", "amazon", 0xFF1FA2E1)), 52);
+
+        LinearLayout nums = line(true,
+            line(false, key("1", "1"), key("2", "2"), key("3", "3")),
+            line(false, key("4", "4"), key("5", "5"), key("6", "6")),
+            line(false, key("7", "7"), key("8", "8"), key("9", "9")),
+            line(false, key("Info", "INFO"), key("0", "0"), key("Guide", "GUIDE")));
+        nums.setVisibility(View.GONE);
+        TextView more = paint(text("Number pad  ▾", 14, MUTED), 0, 14);
+        more.setOnClickListener(v -> {
+            boolean show = nums.getVisibility() != View.VISIBLE;
+            nums.setVisibility(show ? View.VISIBLE : View.GONE);
+            more.setText(show ? "Number pad  ▴" : "Number pad  ▾");
+        });
+        add(col, more, 44);
+        add(col, nums, 224);
 
         ScrollView sv = new ScrollView(this);
+        sv.setBackgroundColor(BG);
         sv.addView(col);
         setContentView(sv);
     }
@@ -110,25 +162,80 @@ public class MainActivity extends Activity {
 
     // ---- UI helpers ----
 
-    LinearLayout row(View... views) {
-        LinearLayout r = new LinearLayout(this);
-        for (View v : views) r.addView(v, new LinearLayout.LayoutParams(0, 150, v instanceof EditText ? 2 : 1));
-        return r;
+    int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
+
+    void add(LinearLayout col, View v, int heightDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(heightDp));
+        lp.topMargin = dp(12);
+        col.addView(v, lp);
+    }
+
+    /** Children share the space equally (EditText and "wide" views get double). */
+    LinearLayout line(boolean vertical, View... views) {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(vertical ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        for (View v : views) {
+            float w = v instanceof EditText || "wide".equals(v.getTag()) ? 2 : 1;
+            LinearLayout.LayoutParams lp = vertical ? new LinearLayout.LayoutParams(-1, 0, w) : new LinearLayout.LayoutParams(0, -1, w);
+            lp.setMargins(dp(4), dp(4), dp(4), dp(4));
+            l.addView(v, lp);
+        }
+        return l;
     }
 
     View space() { return new View(this); }
 
-    Button btn(String label, Task t) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setOnClickListener(v -> act(t));
+    static GradientDrawable fill(int color, float radius) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(radius);  // larger than half the view = pill / circle
+        return g;
+    }
+
+    <T extends View> T paint(T v, int color, int radiusDp) {
+        float r = dp(radiusDp);
+        v.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), fill(color, r), fill(0xFFFFFFFF, r)));
+        return v;
+    }
+
+    TextView text(String s, int sp, int color) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(sp);
+        t.setTextColor(color);
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        return t;
+    }
+
+    TextView btn(String label, Task t) {
+        TextView b = paint(text(label, 15, TEXT), RAISED, 14);
+        b.setGravity(Gravity.CENTER);
+        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        b.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); act(t); });
         return b;
     }
 
-    Button key(String label, String name) { return btn(label, () -> button(name)); }
+    TextView key(String label, String name) { return btn(label, () -> button(name)); }
 
-    Button app(String label, String id) { return btn(label, () -> request("ssap://system.launcher/launch", new JSONObject().put("id", id))); }
+    TextView arrow(String label, String name) { return paint(key(label, name), 0, 999); }
+
+    TextView app(String label, String id, int brand) {
+        TextView b = paint(btn(label, () -> request("ssap://system.launcher/launch", new JSONObject().put("id", id))), SURFACE, 14);
+        b.setTextColor(brand);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        return b;
+    }
+
+    /** Vertical + / label / − pill, like the volume and channel rockers on the real remote. */
+    LinearLayout rocker(String label, Task up, Task down) {
+        TextView plus = paint(btn("+", up), 0, 999), minus = paint(btn("−", down), 0, 999), l = text(label, 11, MUTED);
+        plus.setTextSize(22);
+        minus.setTextSize(22);
+        l.setGravity(Gravity.CENTER);
+        LinearLayout r = line(true, plus, l, minus);
+        r.setBackground(fill(SURFACE, dp(999)));
+        return r;
+    }
 
     void say(String s) { runOnUiThread(() -> status.setText(s)); }
 
