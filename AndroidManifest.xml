@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.lgremote" android:versionCode="1" android:versionName="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.lgremote" android:versionCode="3" android:versionName="1.3">
     <uses-permission android:name="android.permission.INTERNET"/>
     <application android:label="LG Remote" android:theme="@android:style/Theme.Material">
         <activity android:name=".MainActivity" android:exported="true">

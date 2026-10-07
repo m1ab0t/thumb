@@ -73,6 +73,7 @@ public class MainActivity extends Activity {
 
         ipField = new EditText(this);
         ipField.setHint("TV IP address");
+        setTitle("LG Remote v1.3");
         ipField.setText(ip);
         ipField.setSingleLine();
         status = new TextView(this);
