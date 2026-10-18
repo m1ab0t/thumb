@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
+import android.media.AudioAttributes;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
@@ -118,7 +119,7 @@ public class MainActivity extends Activity {
         setup.setVisibility(paired ? View.GONE : View.VISIBLE);
         gear.setOnClickListener(v -> setup.setVisibility(setup.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
         add(col, setup, 48);
-        status = text(paired ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
+        status = text(!((Vibrator) getSystemService(VIBRATOR_SERVICE)).hasVibrator() ? "This phone reports no vibration motor." : paired ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
         status.setPadding(dp(6), dp(8), dp(6), 0);
         col.addView(status);
 
@@ -252,13 +253,17 @@ public class MainActivity extends Activity {
         return v;
     }
 
-    // Vibrator directly (VIBRATE permission) so it works even with system touch feedback off.
+    static final int BUZZ_MS = 35;  // ERM motors need ~30ms to be felt; raise if still weak
+
+    // Vibrator directly, tagged as alarm usage: touch/notification vibration settings and silent mode don't mute it.
     void buzz() {
         Vibrator vib = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-        if (vib == null) return;
-        if (Build.VERSION.SDK_INT >= 29) vib.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK));
-        else if (Build.VERSION.SDK_INT >= 26) vib.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE));
-        else vib.vibrate(20);
+        if (vib == null || !vib.hasVibrator()) return;
+        if (Build.VERSION.SDK_INT >= 26) {
+            int amp = vib.hasAmplitudeControl() ? 255 : VibrationEffect.DEFAULT_AMPLITUDE;
+            vib.vibrate(VibrationEffect.createOneShot(BUZZ_MS, amp),
+                new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build());
+        } else vib.vibrate(BUZZ_MS);
     }
 
     TextView key(String label, String name) { return btn(label, () -> button(name)); }
