@@ -102,12 +102,34 @@ public class MainActivity extends Activity {
         ipField.setPadding(dp(14), 0, dp(14), 0);
         add(col, line(false, ipField, btn("Find", this::find),
             paint(btn("Connect", () -> { request("ssap://system.notifications/createToast", new JSONObject().put("message", "Remote connected")); say("Connected"); }), ACCENT, 14)), 48);
-        status = text(prefs.contains("key") ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
-        status.setPadding(dp(6), 0, dp(6), 0);
-        col.addView(status);
-
         add(col, line(false, paint(btn("Power off", () -> request("ssap://system/turnOff", null)), RED, 999),
             paint(btn("Power on", this::wake), GREEN, 999), paint(key("Mute", "MUTE"), SURFACE, 999)), 48);
+
+        // Rarely used up top; the D-pad, Back/Home and volume sit at the bottom in thumb reach.
+        add(col, line(false, key("◀◀", "REWIND"), key("▶", "PLAY"), key("▮▮", "PAUSE"), key("▶▶", "FASTFORWARD")), 52);
+        add(col, line(false, app("Netflix", "netflix", 0xFFE50914), app("YouTube", "youtube.leanback.v4", 0xFFFF4E45),
+            app("Prime", "amazon", 0xFF1FA2E1)), 52);
+
+        LinearLayout nums = line(true,
+            line(false, key("1", "1"), key("2", "2"), key("3", "3")),
+            line(false, key("4", "4"), key("5", "5"), key("6", "6")),
+            line(false, key("7", "7"), key("8", "8"), key("9", "9")),
+            line(false, key("Info", "INFO"), key("0", "0"), key("Guide", "GUIDE")));
+        nums.setVisibility(View.GONE);
+        TextView more = paint(text("Number pad  ▾", 14, MUTED), 0, 14);
+        more.setOnClickListener(v -> {
+            boolean show = nums.getVisibility() != View.VISIBLE;
+            nums.setVisibility(show ? View.VISIBLE : View.GONE);
+            more.setText(show ? "Number pad  ▴" : "Number pad  ▾");
+        });
+        add(col, more, 44);
+        add(col, nums, 224);
+
+        col.addView(space(), new LinearLayout.LayoutParams(-1, 0, 1));  // pushes the controls down on tall screens
+
+        status = text(prefs.contains("key") ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
+        status.setPadding(dp(6), dp(12), dp(6), 0);
+        col.addView(status);
 
         LinearLayout pad = line(true,
             line(false, space(), arrow("▲", "UP"), space()),
@@ -128,29 +150,12 @@ public class MainActivity extends Activity {
             nav,
             rocker("CH", () -> button("CHANNELUP"), () -> button("CHANNELDOWN"))), 150);
 
-        add(col, line(false, key("◀◀", "REWIND"), key("▶", "PLAY"), key("▮▮", "PAUSE"), key("▶▶", "FASTFORWARD")), 52);
-        add(col, line(false, app("Netflix", "netflix", 0xFFE50914), app("YouTube", "youtube.leanback.v4", 0xFFFF4E45),
-            app("Prime", "amazon", 0xFF1FA2E1)), 52);
-
-        LinearLayout nums = line(true,
-            line(false, key("1", "1"), key("2", "2"), key("3", "3")),
-            line(false, key("4", "4"), key("5", "5"), key("6", "6")),
-            line(false, key("7", "7"), key("8", "8"), key("9", "9")),
-            line(false, key("Info", "INFO"), key("0", "0"), key("Guide", "GUIDE")));
-        nums.setVisibility(View.GONE);
-        TextView more = paint(text("Number pad  ▾", 14, MUTED), 0, 14);
-        more.setOnClickListener(v -> {
-            boolean show = nums.getVisibility() != View.VISIBLE;
-            nums.setVisibility(show ? View.VISIBLE : View.GONE);
-            more.setText(show ? "Number pad  ▴" : "Number pad  ▾");
-        });
-        add(col, more, 44);
-        add(col, nums, 224);
-
         ScrollView sv = new ScrollView(this);
         sv.setBackgroundColor(BG);
+        sv.setFillViewport(true);
         sv.addView(col);
         setContentView(sv);
+        if (prefs.contains("key")) sv.post(() -> sv.scrollTo(0, col.getHeight()));  // paired: open on the controls
     }
 
     // Phone volume rockers control the TV once paired.
