@@ -6,11 +6,14 @@ import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.util.Base64;
 import android.view.Gravity;
-import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -77,19 +80,29 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
 
+        boolean paired = prefs.contains("key");
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dp(16), dp(8), dp(16), dp(24));
+        col.setPadding(dp(16), dp(8), dp(16), dp(20));
 
+        // Header: title, power and a gear that shows the connection row.
         String ver = "";
         try { ver = "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) {}
         TextView title = text("LG Remote", 22, TEXT), version = text(ver, 13, MUTED);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        version.setPadding(dp(8), 0, 0, dp(3));
+        version.setPadding(dp(8), 0, 0, 0);
+        TextView on = paint(btn("On", this::wake), GREEN, 999), off = paint(btn("Off", () -> request("ssap://system/turnOff", null)), RED, 999),
+            gear = paint(tap(text("⚙", 18, TEXT)), SURFACE, 999);
         LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.BOTTOM);
+        header.setGravity(Gravity.CENTER_VERTICAL);
         header.addView(title);
         header.addView(version);
+        header.addView(space(), new LinearLayout.LayoutParams(0, 1, 1));
+        for (TextView t : new TextView[]{on, off, gear}) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(t == gear ? 40 : 56), dp(40));
+            lp.leftMargin = dp(8);
+            header.addView(t, lp);
+        }
         add(col, header, 48);
 
         ipField = new EditText(this);
@@ -100,15 +113,19 @@ public class MainActivity extends Activity {
         ipField.setHintTextColor(MUTED);
         ipField.setBackground(fill(SURFACE, dp(14)));
         ipField.setPadding(dp(14), 0, dp(14), 0);
-        add(col, line(false, ipField, btn("Find", this::find),
-            paint(btn("Connect", () -> { request("ssap://system.notifications/createToast", new JSONObject().put("message", "Remote connected")); say("Connected"); }), ACCENT, 14)), 48);
-        add(col, line(false, paint(btn("Power off", () -> request("ssap://system/turnOff", null)), RED, 999),
-            paint(btn("Power on", this::wake), GREEN, 999), paint(key("Mute", "MUTE"), SURFACE, 999)), 48);
+        LinearLayout setup = line(false, ipField, btn("Find", this::find),
+            paint(btn("Connect", () -> { request("ssap://system.notifications/createToast", new JSONObject().put("message", "Remote connected")); say("Connected"); }), ACCENT, 14));
+        setup.setVisibility(paired ? View.GONE : View.VISIBLE);
+        gear.setOnClickListener(v -> setup.setVisibility(setup.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        add(col, setup, 48);
+        status = text(paired ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
+        status.setPadding(dp(6), dp(8), dp(6), 0);
+        col.addView(status);
 
-        // Rarely used up top; the D-pad, Back/Home and volume sit at the bottom in thumb reach.
-        add(col, line(false, key("◀◀", "REWIND"), key("▶", "PLAY"), key("▮▮", "PAUSE"), key("▶▶", "FASTFORWARD")), 52);
+        // Less used up top; the D-pad, Back/Home and volume sit at the bottom in thumb reach.
         add(col, line(false, app("Netflix", "netflix", 0xFFE50914), app("YouTube", "youtube.leanback.v4", 0xFFFF4E45),
-            app("Prime", "amazon", 0xFF1FA2E1)), 52);
+            app("Prime", "amazon", 0xFF1FA2E1)), 48);
+        add(col, line(false, media("◀◀", "REWIND"), media("▶", "PLAY"), media("▮▮", "PAUSE"), media("▶▶", "FASTFORWARD")), 48);
 
         LinearLayout nums = line(true,
             line(false, key("1", "1"), key("2", "2"), key("3", "3")),
@@ -116,46 +133,51 @@ public class MainActivity extends Activity {
             line(false, key("7", "7"), key("8", "8"), key("9", "9")),
             line(false, key("Info", "INFO"), key("0", "0"), key("Guide", "GUIDE")));
         nums.setVisibility(View.GONE);
-        TextView more = paint(text("Number pad  ▾", 14, MUTED), 0, 14);
+        TextView more = paint(tap(text("Number pad  ▾", 14, MUTED)), 0, 14);
         more.setOnClickListener(v -> {
             boolean show = nums.getVisibility() != View.VISIBLE;
             nums.setVisibility(show ? View.VISIBLE : View.GONE);
             more.setText(show ? "Number pad  ▴" : "Number pad  ▾");
         });
-        add(col, more, 44);
+        add(col, more, 40);
         add(col, nums, 224);
 
         col.addView(space(), new LinearLayout.LayoutParams(-1, 0, 1));  // pushes the controls down on tall screens
 
-        status = text(prefs.contains("key") ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
-        status.setPadding(dp(6), dp(12), dp(6), 0);
-        col.addView(status);
-
+        // Big round D-pad, as wide as the screen allows.
+        int size = Math.min((int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density) - 48, 300);
+        TextView ok = paint(key("OK", "ENTER"), ACCENT, 999);
+        ok.setTextSize(18);
+        ok.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout pad = line(true,
             line(false, space(), arrow("▲", "UP"), space()),
-            line(false, arrow("◀", "LEFT"), paint(key("OK", "ENTER"), ACCENT, 999), arrow("▶", "RIGHT")),
+            line(false, arrow("◀", "LEFT"), ok, arrow("▶", "RIGHT")),
             line(false, space(), arrow("▼", "DOWN"), space()));
-        pad.setBackground(fill(SURFACE, dp(999)));
-        pad.setPadding(dp(8), dp(8), dp(8), dp(8));
-        LinearLayout.LayoutParams padLp = new LinearLayout.LayoutParams(dp(248), dp(248));
+        GradientDrawable ring = fill(SURFACE, dp(999));
+        ring.setStroke(dp(1), RAISED);
+        pad.setBackground(ring);
+        pad.setPadding(dp(10), dp(10), dp(10), dp(10));
+        LinearLayout.LayoutParams padLp = new LinearLayout.LayoutParams(dp(size), dp(size));
         padLp.gravity = Gravity.CENTER_HORIZONTAL;
-        padLp.topMargin = dp(20);
+        padLp.topMargin = dp(16);
         col.addView(pad, padLp);
 
+        TextView mute = paint(key("MUTE", "MUTE"), 0, 999);
+        mute.setTextSize(11);
         LinearLayout nav = line(true, line(false, key("Back", "BACK"), key("Home", "HOME")),
                                       line(false, key("Menu", "MENU"), key("Exit", "EXIT")));
         nav.setTag("wide");
         add(col, line(false,
-            rocker("VOL", () -> request("ssap://audio/volumeUp", null), () -> request("ssap://audio/volumeDown", null)),
+            rocker(mute, () -> request("ssap://audio/volumeUp", null), () -> request("ssap://audio/volumeDown", null)),
             nav,
-            rocker("CH", () -> button("CHANNELUP"), () -> button("CHANNELDOWN"))), 150);
+            rocker(text("CH", 11, MUTED), () -> button("CHANNELUP"), () -> button("CHANNELDOWN"))), 150);
 
         ScrollView sv = new ScrollView(this);
         sv.setBackgroundColor(BG);
         sv.setFillViewport(true);
         sv.addView(col);
         setContentView(sv);
-        if (prefs.contains("key")) sv.post(() -> sv.scrollTo(0, col.getHeight()));  // paired: open on the controls
+        if (paired) sv.post(() -> sv.scrollTo(0, col.getHeight()));  // paired: open on the controls
     }
 
     // Phone volume rockers control the TV once paired.
@@ -216,13 +238,39 @@ public class MainActivity extends Activity {
         TextView b = paint(text(label, 15, TEXT), RAISED, 14);
         b.setGravity(Gravity.CENTER);
         b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        b.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); act(t); });
-        return b;
+        b.setOnClickListener(v -> act(t));
+        return tap(b);
+    }
+
+    /** Buzz and shrink slightly on touch-down, so every press is felt. */
+    <T extends View> T tap(T v) {
+        v.setOnTouchListener((x, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) { buzz(); x.animate().scaleX(.93f).scaleY(.93f).setDuration(60); }
+            else if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) x.animate().scaleX(1).scaleY(1).setDuration(120);
+            return false;
+        });
+        return v;
+    }
+
+    // Vibrator directly (VIBRATE permission) so it works even with system touch feedback off.
+    void buzz() {
+        Vibrator vib = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+        if (vib == null) return;
+        if (Build.VERSION.SDK_INT >= 29) vib.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK));
+        else if (Build.VERSION.SDK_INT >= 26) vib.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE));
+        else vib.vibrate(20);
     }
 
     TextView key(String label, String name) { return btn(label, () -> button(name)); }
 
-    TextView arrow(String label, String name) { return paint(key(label, name), 0, 999); }
+    TextView arrow(String label, String name) {
+        TextView a = paint(key(label, name), 0, 999);
+        a.setTextSize(22);
+        a.setTextColor(MUTED);
+        return a;
+    }
+
+    TextView media(String label, String name) { return paint(key(label, name), SURFACE, 999); }
 
     TextView app(String label, String id, int brand) {
         TextView b = paint(btn(label, () -> request("ssap://system.launcher/launch", new JSONObject().put("id", id))), SURFACE, 14);
@@ -231,13 +279,13 @@ public class MainActivity extends Activity {
         return b;
     }
 
-    /** Vertical + / label / − pill, like the volume and channel rockers on the real remote. */
-    LinearLayout rocker(String label, Task up, Task down) {
-        TextView plus = paint(btn("+", up), 0, 999), minus = paint(btn("−", down), 0, 999), l = text(label, 11, MUTED);
-        plus.setTextSize(22);
-        minus.setTextSize(22);
-        l.setGravity(Gravity.CENTER);
-        LinearLayout r = line(true, plus, l, minus);
+    /** Vertical + / middle / − pill, like the volume and channel rockers on the real remote. */
+    LinearLayout rocker(TextView mid, Task up, Task down) {
+        TextView plus = paint(btn("+", up), 0, 999), minus = paint(btn("−", down), 0, 999);
+        plus.setTextSize(24);
+        minus.setTextSize(24);
+        mid.setGravity(Gravity.CENTER);
+        LinearLayout r = line(true, plus, mid, minus);
         r.setBackground(fill(SURFACE, dp(999)));
         return r;
     }
