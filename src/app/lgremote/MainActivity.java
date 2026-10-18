@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
-import android.media.AudioAttributes;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
@@ -253,17 +252,13 @@ public class MainActivity extends Activity {
         return v;
     }
 
-    static final int BUZZ_MS = 35;  // ERM motors need ~30ms to be felt; raise if still weak
-
-    // Vibrator directly, tagged as alarm usage: touch/notification vibration settings and silent mode don't mute it.
+    // Vibrator directly, so it works even when the system "touch feedback" toggle is off.
     void buzz() {
         Vibrator vib = (Vibrator) getSystemService(VIBRATOR_SERVICE);
         if (vib == null || !vib.hasVibrator()) return;
-        if (Build.VERSION.SDK_INT >= 26) {
-            int amp = vib.hasAmplitudeControl() ? 255 : VibrationEffect.DEFAULT_AMPLITUDE;
-            vib.vibrate(VibrationEffect.createOneShot(BUZZ_MS, amp),
-                new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build());
-        } else vib.vibrate(BUZZ_MS);
+        if (Build.VERSION.SDK_INT >= 29) vib.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK));  // same crisp tick as the keyboard
+        else if (Build.VERSION.SDK_INT >= 26) vib.vibrate(VibrationEffect.createOneShot(15, VibrationEffect.DEFAULT_AMPLITUDE));
+        else vib.vibrate(15);
     }
 
     TextView key(String label, String name) { return btn(label, () -> button(name)); }
