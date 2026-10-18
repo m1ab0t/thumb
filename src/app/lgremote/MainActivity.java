@@ -85,21 +85,20 @@ public class MainActivity extends Activity {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(16), dp(8), dp(16), dp(20));
 
-        // Header: title, power and a gear that shows the connection row.
+        // Header: title and power.
         String ver = "";
         try { ver = "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) {}
         TextView title = text("LG Remote", 22, TEXT), version = text(ver, 13, MUTED);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         version.setPadding(dp(8), 0, 0, 0);
-        TextView on = paint(btn("On", this::wake), GREEN, 999), off = paint(btn("Off", () -> request("ssap://system/turnOff", null)), RED, 999),
-            gear = paint(tap(text("⚙", 18, TEXT)), SURFACE, 999);
+        TextView on = paint(btn("On", this::wake), GREEN, 999), off = paint(btn("Off", () -> request("ssap://system/turnOff", null)), RED, 999);
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.addView(title);
         header.addView(version);
         header.addView(space(), new LinearLayout.LayoutParams(0, 1, 1));
-        for (TextView t : new TextView[]{on, off, gear}) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(t == gear ? 40 : 56), dp(40));
+        for (TextView t : new TextView[]{on, off}) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(56), dp(40));
             lp.leftMargin = dp(8);
             header.addView(t, lp);
         }
@@ -113,11 +112,8 @@ public class MainActivity extends Activity {
         ipField.setHintTextColor(MUTED);
         ipField.setBackground(fill(SURFACE, dp(14)));
         ipField.setPadding(dp(14), 0, dp(14), 0);
-        LinearLayout setup = line(false, ipField, btn("Find", this::find),
-            paint(btn("Connect", () -> { request("ssap://system.notifications/createToast", new JSONObject().put("message", "Remote connected")); say("Connected"); }), ACCENT, 14));
-        setup.setVisibility(paired ? View.GONE : View.VISIBLE);
-        gear.setOnClickListener(v -> setup.setVisibility(setup.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
-        add(col, setup, 48);
+        add(col, line(false, ipField, btn("Find", this::find),
+            paint(btn("Connect", () -> { request("ssap://system.notifications/createToast", new JSONObject().put("message", "Remote connected")); say("Connected"); }), ACCENT, 14)), 48);
         status = text(!((Vibrator) getSystemService(VIBRATOR_SERVICE)).hasVibrator() ? "This phone reports no vibration motor." : paired ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
         status.setPadding(dp(6), dp(8), dp(6), 0);
         col.addView(status);
