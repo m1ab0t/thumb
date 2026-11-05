@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.InterfaceAddress;
@@ -117,6 +118,10 @@ public class MainActivity extends Activity {
         status = text(!((Vibrator) getSystemService(VIBRATOR_SERVICE)).hasVibrator() ? "This phone reports no vibration motor." : paired ? "Paired. Tap any button." : "Tap Find (or type the TV's IP), then Connect.", 13, MUTED);
         status.setPadding(dp(6), dp(8), dp(6), 0);
         col.addView(status);
+        TextView help = tap(text("Not connecting? Troubleshoot  ›", 13, ACCENT));
+        help.setPadding(dp(6), dp(6), dp(6), dp(6));
+        help.setOnClickListener(v -> act(this::diagnose));
+        col.addView(help);
 
         // Less used up top; the D-pad, Back/Home and volume sit at the bottom in thumb reach.
         add(col, line(false, app("Netflix", "netflix", 0xFFE50914), app("YouTube", "youtube.leanback.v4", 0xFFFF4E45),
@@ -295,7 +300,7 @@ public class MainActivity extends Activity {
         net.execute(() -> {
             try { t.run(); } catch (Exception first) {
                 drop();
-                try { t.run(); } catch (Exception e) { drop(); say("Error: " + e.getMessage()); }
+                try { t.run(); } catch (Exception e) { drop(); say("Error: " + e.getMessage() + "\nTap Troubleshoot below."); }
             }
         });
     }
@@ -321,16 +326,22 @@ public class MainActivity extends Activity {
         if (key != null) payload.put("client-key", key);
         w.send(new JSONObject().put("type", "register").put("id", "reg").put("payload", payload).toString());
         w.timeout(60000);
-        while (true) {
-            JSONObject m = new JSONObject(w.read());
-            String type = m.optString("type");
-            if (type.equals("registered")) {
-                prefs.edit().putString("key:" + ip, m.getJSONObject("payload").getString("client-key")).putString("key", "1").apply();
-                break;
+        try {
+            while (true) {
+                JSONObject m = new JSONObject(w.read());
+                String type = m.optString("type");
+                if (type.equals("registered")) {
+                    prefs.edit().putString("key:" + ip, m.getJSONObject("payload").getString("client-key")).putString("key", "1").apply();
+                    break;
+                }
+                if (type.equals("error")) {
+                    // TV reset or firmware update forgets paired phones: drop our stale key so the retry asks again.
+                    if (key != null) prefs.edit().remove("key:" + ip).apply();
+                    throw new IOException("TV rejected pairing: " + m.optString("error"));
+                }
+                say("Accept the prompt on your TV…");
             }
-            if (type.equals("error")) { w.close(); throw new IOException(m.optString("error")); }
-            say("Accept the prompt on your TV…");
-        }
+        } catch (Exception e) { w.close(); throw e; }
         w.timeout(5000);
         main = w;
         say("Connected to " + ip);
@@ -373,17 +384,70 @@ public class MainActivity extends Activity {
 
     void find() throws Exception {
         say("Searching…");
+        String found = ssdp();
+        if (found == null) { say("No LG TV found. Same Wi-Fi? Type the IP instead."); return; }
+        runOnUiThread(() -> ipField.setText(found));
+        say("Found TV at " + found + ". Tap Connect.");
+    }
+
+    /** SSDP search for a webOS TV; its IP, or null if none answers. */
+    static String ssdp() throws IOException {
         try (DatagramSocket ds = new DatagramSocket()) {
             ds.setSoTimeout(3000);
             byte[] q = ("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\n"
                 + "ST: urn:lge-com:service:webos-second-screen:1\r\n\r\n").getBytes("UTF-8");
             ds.send(new DatagramPacket(q, q.length, InetAddress.getByName("239.255.255.250"), 1900));
             DatagramPacket r = new DatagramPacket(new byte[2048], 2048);
-            try { ds.receive(r); } catch (IOException e) { say("No LG TV found. Same Wi-Fi? Type the IP instead."); return; }
-            String found = r.getAddress().getHostAddress();
-            runOnUiThread(() -> ipField.setText(found));
-            say("Found TV at " + found + ". Tap Connect.");
+            try { ds.receive(r); } catch (IOException e) { return null; }
+            return r.getAddress().getHostAddress();
         }
+    }
+
+    /** Walks the connection step by step, fixes what it can (moved IP, stale pairing), reports the rest. */
+    void diagnose() throws Exception {
+        drop();
+        StringBuilder r = new StringBuilder();
+        say("Checking the phone's network…");
+        List<String> mine = new ArrayList<>();
+        boolean vpn = false;
+        for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+            if (!ni.isUp() || ni.isLoopback()) continue;
+            if (ni.getName().startsWith("tun") || ni.getName().startsWith("ppp")) vpn = true;
+            for (InterfaceAddress a : ni.getInterfaceAddresses())
+                if (a.getAddress() instanceof Inet4Address) mine.add(a.getAddress().getHostAddress() + " (" + ni.getName() + ")");
+        }
+        r.append("Phone: ").append(mine.isEmpty() ? "no network" : android.text.TextUtils.join(", ", mine)).append('\n');
+        if (vpn) r.append("✗ A VPN is on. Turn it off; it can hide the TV.\n");
+
+        say("Looking for the TV…");
+        String found = ssdp();
+        if (found == null) r.append("✗ No TV answered a search. TV off, phone on another Wi-Fi (guest/5 GHz with isolation), or the router blocks it.\n");
+        else if (!found.equals(ip)) {
+            r.append("✓ TV found at ").append(found).append(ip.isEmpty() ? "" : " (it moved from " + ip + ", switched)").append('\n');
+            ip = found;
+            prefs.edit().putString("ip", ip).apply();
+            runOnUiThread(() -> ipField.setText(found));
+        } else r.append("✓ TV found at ").append(ip).append('\n');
+        if (ip.isEmpty()) { say(r + "Type the TV's IP (TV: Settings › Network › Wi-Fi › Advanced) and tap Troubleshoot again."); return; }
+
+        boolean open = false;
+        for (int port : new int[]{3001, 3000}) {
+            say("Checking port " + port + "…");
+            try (Socket s = new Socket()) { s.connect(new InetSocketAddress(ip, port), 3000); open = true; r.append("✓ Port ").append(port).append(" open\n"); }
+            catch (IOException e) { r.append("· Port ").append(port).append(" no answer\n"); }
+        }
+        if (!open) { say(r + "✗ TV isn't accepting remotes. Turn it on, then on the TV enable Settings › General › External Devices › \"LG Connect Apps\" (older: Network › LG Connect Apps / Mobile TV On). Check the IP is right."); return; }
+
+        try { connect(); r.append("✓ Paired and connected. Buttons should work now."); }
+        catch (Exception e) {
+            if (prefs.getString("key:" + ip, null) == null && String.valueOf(e.getMessage()).startsWith("TV rejected")) {
+                r.append("· TV had forgotten this phone; asking again…\n");
+                say(r + "Accept the prompt on your TV…");
+                try { connect(); r.append("✓ Paired and connected."); }
+                catch (Exception e2) { r.append("✗ Pairing failed: ").append(e2.getMessage()).append(". Accept the prompt on the TV within a minute."); }
+            } else r.append("✗ Connect failed: ").append(e.getMessage()).append(". Restart the TV (hold power on the TV remote 5s) and try again.");
+        }
+        say(r.toString());
     }
 
     /**
