@@ -326,8 +326,16 @@ public class MainActivity extends Activity {
         if (ip.isEmpty()) throw new IOException("enter the TV's IP or tap Find");
         say("Connecting to " + ip + "…");
         Ws w;
-        try { w = new Ws(ip, 3001, true, "/"); }            // newer firmware: TLS only
-        catch (IOException e) { w = new Ws(ip, 3000, false, "/"); }
+        try { w = open(); }
+        catch (IOException e) {
+            // Router handed the TV a new IP: find it and switch, instead of failing until Troubleshoot.
+            say("No answer at " + ip + ", searching for the TV…");
+            String found = ssdp();
+            if (found == null || found.equals(ip)) throw new IOException("no TV answering at " + ip + ". Is it on?");
+            switchIp(found);
+            say("TV moved to " + ip + ", connecting…");
+            w = open();
+        }
         JSONObject payload = new JSONObject().put("forcePairing", false).put("pairingType", "PROMPT")
             .put("manifest", new JSONObject().put("manifestVersion", 1).put("appVersion", "1.1").put("permissions", new JSONArray(PERMISSIONS)));
         String key = prefs.getString("key:" + ip, null);
@@ -364,6 +372,20 @@ public class MainActivity extends Activity {
             prefs.edit().putString("mac:" + ip, macs.toString().trim()).apply();
         } catch (Exception ignored) {}
         if (prefs.getString("mac:" + ip, "").isEmpty()) say("Connected to " + ip + " (couldn't read its MAC, so Power on may not work)");
+    }
+
+    Ws open() throws IOException {
+        try { return new Ws(ip, 3001, true, "/"); }            // newer firmware: TLS only
+        catch (IOException e) { return new Ws(ip, 3000, false, "/"); }
+    }
+
+    /** Same TV, new IP: keep the pairing and update the field. */
+    void switchIp(String found) {
+        String oldKey = prefs.getString("key:" + ip, null);
+        if (oldKey != null && !prefs.contains("key:" + found)) prefs.edit().putString("key:" + found, oldKey).apply();
+        ip = found;
+        prefs.edit().putString("ip", ip).apply();
+        runOnUiThread(() -> ipField.setText(found));
     }
 
     JSONObject request(String uri, JSONObject payload) throws Exception {
@@ -431,11 +453,7 @@ public class MainActivity extends Activity {
         if (found == null) r.append("✗ No TV answered a search. TV off, phone on another Wi-Fi (guest/5 GHz with isolation), or the router blocks it.\n");
         else if (!found.equals(ip)) {
             r.append("✓ TV found at ").append(found).append(ip.isEmpty() ? "" : " (it moved from " + ip + ", switched)").append('\n');
-            String oldKey = prefs.getString("key:" + ip, null);  // same TV, new IP: keep the pairing
-            if (oldKey != null && !prefs.contains("key:" + found)) prefs.edit().putString("key:" + found, oldKey).apply();
-            ip = found;
-            prefs.edit().putString("ip", ip).apply();
-            runOnUiThread(() -> ipField.setText(found));
+            switchIp(found);
         } else r.append("✓ TV found at ").append(ip).append('\n');
         if (ip.isEmpty()) { say(r + "Type the TV's IP (TV: Settings › Network › Wi-Fi › Advanced) and tap Troubleshoot again."); return; }
 
