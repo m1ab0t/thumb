@@ -70,6 +70,10 @@ public class MainActivity extends Activity {
     volatile String ip = "";
     Ws main, pointer;
     int nextId = 1;
+    long lastUsed;
+    // TVs and Wi-Fi power saving silently kill idle sockets; writes to a dead one "succeed" and the press vanishes.
+    // ponytail: reconnect after this much idle (~0.5s cost); raise it if reconnects feel slow, lower if presses still vanish.
+    static final long IDLE_MS = 20000;
 
     static final int BG = 0xFF0E1013, SURFACE = 0xFF1B1E24, RAISED = 0xFF2A2E37, TEXT = 0xFFECEEF2, MUTED = 0xFF8B919C,
         ACCENT = 0xFFD6004B, RED = 0xFFE5484D, GREEN = 0xFF2FA36B;
@@ -180,6 +184,9 @@ public class MainActivity extends Activity {
         setContentView(sv);
         if (paired) sv.post(() -> sv.scrollTo(0, col.getHeight()));  // paired: open on the controls
     }
+
+    // Phone asleep / app in background: sockets die without notice, so start fresh next time.
+    @Override protected void onStop() { super.onStop(); net.execute(this::drop); }
 
     // Phone volume rockers control the TV once paired.
     @Override public boolean onKeyDown(int code, KeyEvent e) {
@@ -298,9 +305,10 @@ public class MainActivity extends Activity {
         String now = ipField.getText().toString().trim();
         if (!now.equals(ip)) { ip = now; prefs.edit().putString("ip", ip).apply(); net.execute(this::drop); }
         net.execute(() -> {
-            try { t.run(); } catch (Exception first) {
+            if (System.currentTimeMillis() - lastUsed > IDLE_MS) drop();
+            try { t.run(); lastUsed = System.currentTimeMillis(); } catch (Exception first) {
                 drop();
-                try { t.run(); } catch (Exception e) { drop(); say("Error: " + e.getMessage() + "\nTap Troubleshoot below."); }
+                try { t.run(); lastUsed = System.currentTimeMillis(); } catch (Exception e) { drop(); say("Error: " + e.getMessage() + "\nTap Troubleshoot below."); }
             }
         });
     }
@@ -378,7 +386,6 @@ public class MainActivity extends Activity {
             URI u = new URI(request("ssap://com.webos.service.networkinput/getPointerInputSocket", null).getString("socketPath"));
             pointer = new Ws(u.getHost(), u.getPort(), "wss".equals(u.getScheme()), u.getRawPath());
         }
-        // ponytail: a silently-closed pointer socket can swallow one press before the retry reconnects.
         pointer.send("type:button\nname:" + name + "\n\n");
     }
 
@@ -424,6 +431,8 @@ public class MainActivity extends Activity {
         if (found == null) r.append("✗ No TV answered a search. TV off, phone on another Wi-Fi (guest/5 GHz with isolation), or the router blocks it.\n");
         else if (!found.equals(ip)) {
             r.append("✓ TV found at ").append(found).append(ip.isEmpty() ? "" : " (it moved from " + ip + ", switched)").append('\n');
+            String oldKey = prefs.getString("key:" + ip, null);  // same TV, new IP: keep the pairing
+            if (oldKey != null && !prefs.contains("key:" + found)) prefs.edit().putString("key:" + found, oldKey).apply();
             ip = found;
             prefs.edit().putString("ip", ip).apply();
             runOnUiThread(() -> ipField.setText(found));
@@ -506,6 +515,7 @@ public class MainActivity extends Activity {
         Ws(String host, int port, boolean tls, String path) throws IOException {
             Socket raw = new Socket();
             raw.connect(new InetSocketAddress(host, port), 3000);
+            raw.setSoTimeout(5000);  // a TV half-awake can accept TCP then stall the TLS handshake forever
             Socket sock = raw;
             if (tls) {
                 try {
